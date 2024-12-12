@@ -1,6 +1,7 @@
 const User = require('../models/User');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const nodemailer = require ('nodemailer')
 
 exports.register = async (req, res) => {
   const { nombre, apellido, correo,contraseña } = req.body;
@@ -66,3 +67,91 @@ exports.getUsers = async (req, res) => {
     res.status(500).json({ error: 'Error al obtener usuarios', details: err.message });
   }
 };
+
+
+exports.updateUser = async (req,res) => {
+  const {id} = req.params;
+  const {nombre,correo} = req.body;
+  try{
+    const user = await User.findByIdAndUpdate(
+      id,
+      {nombre,correo},
+      {new:true}
+    );
+    if(!user){
+      return res.status(404).json({error: 'usuario no encontrado'});
+    }
+    res.json({message:'usuario actualizado con exito',user});
+  }catch(error){
+    res.status(500).json({error:'error al actualizar',details:error.message});
+  }
+},
+
+exports.deleteUser = async (req,res) => {
+  const {id} = req.params;
+  try {
+    const user = await User.findByIdAndDelete(id);
+    if(!user){
+      return res.status(404).json({error: 'usuario no encontrado'})
+    }
+    res.json({message:'usuario eliminado'})
+  }catch(error){
+    res.status(500).json({error:'erro al eliminar'})
+  }
+}
+
+
+exports.recoverPassword = async (req,res) => {
+  const {correo} = req.body;
+  try {
+    const user = await user.findOne({correo});
+    if(!user){
+      return res.status(404).json({error:'usuario no encontrado'});
+    }
+
+    const token =jwt.sign ({id:user._id}, process.env.JWT_SECRET,{expiresIn:'1H'});
+
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth:{
+        user:process.env.EMAIL_USER,
+        pass:process.env.EMAIL_PASSWORD,
+      },
+    });
+    const mailOptions = {
+      from: process.env.EMAIL_USER,
+      to:correo,
+      subjeact: 'recuperacion de contraseña',
+      text:`Para restablecer tu contraseña, haz clic en el siguiente enlace: 
+         http://localho;st:5008/reset-password/${token}`,
+    };
+    await transporter.sendMail(mailOptions);
+    res.json({message: 'recuperacion enviada'});
+  }catch(err){
+    res.status(500).json({error: 'error al enviar recuperacion',details:err.message});
+  }
+};
+
+
+
+exports.resetPassword = async (req,res) => {
+  const {token} = req.params;
+  const {nuevaContraseña} = req.body;
+  try {
+    const decoded = jwt.verify(token,process.env.JWT_SECRET);
+
+    const user = await User.findById(decoded.id);
+    if(!user){
+      return res.status(404).json({error: 'usuario no encontrado'});
+    }
+
+    const hashedPassword = await bcrypt.hash(nuevaContraseña.trim(),10);
+
+    user.contraseña = hashedPassword;
+    await user.save();
+    
+    res.json({message: 'contraseña restablecida'});
+  }catch(error){
+    res.status(403).json({error:' token invalidado o expirado'})
+  }
+}
